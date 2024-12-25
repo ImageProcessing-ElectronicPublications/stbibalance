@@ -9,6 +9,8 @@
 #include "stb/stb_image_write.h"
 #define IIR_GAUSS_BLUR_IMPLEMENTATION
 #include "iir_gauss_blur.h"
+#define FILTER_BALANCE_IMPLEMENTATION
+#include "filter_balance.h"
 
 void usage(char* progname)
 {
@@ -39,10 +41,10 @@ void help(float sigma, float mix)
     );
 }
 
-uint8_t* image_copy(unsigned int width, unsigned int height, unsigned char components, unsigned char* image)
+unsigned char* image_copy(unsigned int width, unsigned int height, unsigned char components, unsigned char* image)
 {
     size_t image_size = height * width * components;
-    uint8_t* dest = (unsigned char*)malloc(image_size * sizeof(unsigned char));
+    unsigned char* dest = (unsigned char*)malloc(image_size * sizeof(unsigned char));
     if (dest != NULL)
     {
         for (size_t i = 0; i < image_size; i++)
@@ -51,106 +53,6 @@ uint8_t* image_copy(unsigned int width, unsigned int height, unsigned char compo
         }
     }
     return dest;
-}
-
-void image_overlay_blur(unsigned int width, unsigned int height, unsigned char components, unsigned char* blur1r, unsigned char* blur2r)
-{
-    size_t image_size = height * width * components;
-    if ((blur1r != NULL) && (blur2r != NULL))
-    {
-        for (size_t i = 0; i < image_size; i++)
-        {
-            float b1r = blur1r[i];
-            float b2r = blur2r[i];
-
-            /* overlay 1 */
-            float base = 255.0f - b1r;
-            float overlay = b2r;
-            float retval1 = base;
-            if (base > 127.5f)
-            {
-                retval1 = 255.0f - retval1;
-                overlay = 255.0f - overlay;
-            }
-            retval1 *= overlay;
-            retval1 += retval1;
-            retval1 /= 255.0f;
-            if (base > 127.5f)
-            {
-                retval1 = 255.0f - retval1;
-            }
-
-            /* overlay 2 */
-            base = 255.0f - b2r;
-            overlay = b1r;
-            float retval2 = base;
-            if (base > 127.5f)
-            {
-                retval2 = 255.0f - retval2;
-                overlay = 255.0f - overlay;
-            }
-            retval2 *= overlay;
-            retval2 += retval2;
-            retval2 /= 255.0f;
-            if (base > 127.5f)
-            {
-                retval2 = 255.0f - retval2;
-            }
-
-            blur1r[i] = (retval1 < 0.0f) ? 0 : ((retval1 < 255.0f) ? (uint8_t)(retval1 + 0.5f) : 255);
-            blur2r[i] = (retval2 < 0.0f) ? 0 : ((retval2 < 255.0f) ? (uint8_t)(retval2 + 0.5f) : 255);
-        }
-    }
-}
-
-void image_overlay(unsigned int width, unsigned int height, unsigned char components, unsigned char* image, unsigned char* blur)
-{
-    size_t image_size = height * width * components;
-    if ((image != NULL) && (blur != NULL))
-    {
-        for (size_t i = 0; i < image_size; i++)
-        {
-            float im = image[i];
-            float bl = blur[i];
-
-            /* overlay*/
-            float base = im;
-            float overlay = bl;
-            float retval = base;
-            if (base > 127.5f)
-            {
-                retval = 255.0f - retval;
-                overlay = 255.0f - overlay;
-            }
-            retval *= overlay;
-            retval += retval;
-            retval /= 255.0f;
-            if (base > 127.5f)
-            {
-                retval = 255.0f - retval;
-            }
-
-            blur[i] = (retval < 0.0f) ? 0 : ((retval < 255.0f) ? (uint8_t)(retval + 0.5f) : 255);
-        }
-    }
-}
-
-void image_mix(unsigned int width, unsigned int height, unsigned char components, float coef, unsigned char* image1, unsigned char* image2)
-{
-    size_t image_size = height * width * components;
-    if ((image1 != NULL) && (image2 != NULL))
-    {
-        for (size_t i = 0; i < image_size; i++)
-        {
-            float im1 = image1[i];
-            float im2 = image2[i];
-
-            /* overlay*/
-            float retval = coef * im1 + (1.0 - coef) * im2;
-
-            image2[i] = (retval < 0.0f) ? 0 : ((retval < 255.0f) ? (uint8_t)(retval + 0.5f) : 255);
-        }
-    }
 }
 
 int main(int argc, char** argv)
@@ -187,21 +89,21 @@ int main(int argc, char** argv)
     }
 
     int width = 0, height = 0, components = 1;
-    uint8_t* image = stbi_load(argv[optind], &width, &height, &components, 0);
+    unsigned char* image = stbi_load(argv[optind], &width, &height, &components, 0);
     if (image == NULL)
     {
         fprintf(stderr, "Failed to load %s: %s.\n", argv[optind], stbi_failure_reason());
         return 2;
     }
 
-    uint8_t* blur1r = image_copy(width, height, components, image);
+    unsigned char* blur1r = image_copy(width, height, components, image);
     if (blur1r == NULL)
     {
         fprintf(stderr, "ERROR: not use memmory\n");
         return 3;
     }
 
-    uint8_t* blur2r = image_copy(width, height, components, image);
+    unsigned char* blur2r = image_copy(width, height, components, image);
     if (blur2r == NULL)
     {
         fprintf(stderr, "ERROR: not use memmory\n");
@@ -211,10 +113,7 @@ int main(int argc, char** argv)
     iir_gauss_blur(width, height, components, blur1r, sigma);
     iir_gauss_blur(width, height, components, blur2r, (sigma + sigma));
 
-    image_overlay_blur(width, height, components, blur1r, blur2r);
-    image_overlay(width, height, components, image, blur1r);
-    image_overlay(width, height, components, blur1r, blur2r);
-    image_mix(width, height, components, mix, blur2r, image);
+    image_filter_balance(width, height, components, mix, image, blur1r, blur2r);
 
     if ( stbi_write_png(argv[optind+1], width, height, components, image, 0) == 0 )
     {
